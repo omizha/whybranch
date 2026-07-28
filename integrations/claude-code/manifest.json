@@ -1,0 +1,8 @@
+{
+  "format_version": 1,
+  "agent": "claude-code",
+  "skill_name": "decision-graph-interview",
+  "canonical_source": "../shared/decision-graph-interview/SKILL.md",
+  "materialization": "copy",
+  "default_destination": ".claude/skills/decision-graph-interview/SKILL.md"
+}

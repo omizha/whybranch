@@ -1,0 +1,104 @@
+{
+  "schema_version": "decision-graph-seed/v1",
+  "objective": "Choose the first validation for a local decision tool",
+  "scope": "One developer workflow",
+  "horizon": "This week",
+  "working_assumption": "The first release stays single-user and loopback-only.",
+  "current_blockers": [
+    {
+      "label": "A user must be able to find the explicit completion step.",
+      "unlock_condition": "Validate the form with a first user."
+    }
+  ],
+  "potential_follow_ups": [
+    {
+      "label": "Decide whether a separate collaboration mode is needed.",
+      "unlock_condition": "Only after the single-user workflow is validated."
+    }
+  ],
+  "candidate_uncertainties": [
+    {
+      "label": "A readiness metric could be mistaken for probability.",
+      "detail": "Keep the policy, components, and re-open conditions visible."
+    }
+  ],
+  "questions": [
+    {
+      "id": "validation",
+      "prompt": "What should the first validation demonstrate?",
+      "description": "Several answers may be independently useful.",
+      "kind": "mixed",
+      "selection_mode": "multiple",
+      "options": [
+        {
+          "id": "autosave",
+          "label": "Drafts survive a reload"
+        },
+        {
+          "id": "handoff",
+          "label": "The completion handoff is understandable"
+        },
+        {
+          "id": "graph",
+          "label": "The graph makes unresolved conditions visible"
+        }
+      ],
+      "allow_other": true
+    },
+    {
+      "id": "risk",
+      "prompt": "Which risk should remain explicit in the first decision?",
+      "kind": "choice",
+      "selection_mode": "single",
+      "options": [
+        {
+          "id": "privacy",
+          "label": "Local-data handling"
+        },
+        {
+          "id": "interpretation",
+          "label": "Misinterpreting readiness as certainty"
+        }
+      ],
+      "allow_other": true
+    },
+    {
+      "id": "unknown",
+      "prompt": "What evidence is still missing?",
+      "kind": "free_text"
+    }
+  ],
+  "material_items": [
+    {
+      "id": "evidence-loopback",
+      "kind": "evidence",
+      "label": "The server binds only to 127.0.0.1",
+      "impact": "high",
+      "status": "verified",
+      "source": "CLI loopback test"
+    },
+    {
+      "id": "blocker-first-user",
+      "kind": "blocker",
+      "label": "A first user has not validated the completion handoff",
+      "impact": "high",
+      "status": "open",
+      "related_question_id": "validation"
+    },
+    {
+      "id": "assumption-score-label",
+      "kind": "assumption",
+      "label": "The heuristic label prevents probability-like interpretation",
+      "impact": "medium",
+      "status": "untested",
+      "related_question_id": "risk"
+    },
+    {
+      "id": "counterevidence-tab-churn",
+      "kind": "contradiction",
+      "label": "Earlier form flows created a new browser tab for each pack",
+      "impact": "high",
+      "status": "resolved"
+    }
+  ]
+}

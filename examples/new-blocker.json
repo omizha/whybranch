@@ -1,0 +1,8 @@
+{
+  "id": "blocker-first-user-comprehension",
+  "kind": "blocker",
+  "label": "A first user has not yet confirmed that the completion handoff is understandable",
+  "impact": "high",
+  "status": "open",
+  "detail": "Add this only after evidence shows the blocker belongs to the decision record."
+}

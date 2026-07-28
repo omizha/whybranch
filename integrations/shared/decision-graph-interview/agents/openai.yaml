@@ -1,0 +1,4 @@
+interface:
+  display_name: "Decision Graph Interview"
+  short_description: "Run an evidence-bound local decision workspace"
+  default_prompt: "Use $decision-graph-interview to capture a decision in one local workspace."

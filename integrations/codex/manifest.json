@@ -1,8 +1,9 @@
 {
   "format_version": 1,
   "agent": "codex",
-  "skill_name": "decision-graph-interview",
-  "canonical_source": "../shared/decision-graph-interview/SKILL.md",
+  "skill_name": "whybranch",
+  "canonical_source": "../shared/whybranch/SKILL.md",
   "materialization": "copy",
-  "default_destination": "${CODEX_HOME:-~/.codex}/skills/decision-graph-interview/SKILL.md"
+  "supporting_files": ["references/implementation-authority.md"],
+  "default_destination": "${CODEX_HOME:-~/.codex}/skills/whybranch/SKILL.md"
 }

@@ -1,33 +1,102 @@
-# Decision Graph Interview
+# Whybranch
 
-Decision Graph Interview is a zero-dependency, local CLI for running an evidence-bound decision interview in one browser workspace. It keeps questions, answers, blockers, assumptions, counterevidence, readiness changes, and graph projection traceable to the same local ledger.
+[한국어](README.ko.md) · English
 
-It is deliberately a local tool, not a hosted collaboration service: the normal path uses `127.0.0.1`, has no account or authentication, and does not send workspace data to a service.
+**Make a choice. Keep the reasons.**
 
-## v0.1 status
+Whybranch is a local decision tool for a user and an AI agent to use together. Answer questions prepared by the agent in your browser, and keep track of your choices and the evidence behind them in one workspace.
 
-This is an alpha public-contract repository. The command and package name below are intended for the `decision-graph-interview` npm package, but publication and ownership of that package name must be verified before relying on `npx`. Until then, use a checked-out copy.
+Questions, answers, assumptions, counter-evidence, and unresolved conditions share the same ledger. When you revisit a decision, you can review both the conclusion and how you reached it.
+
+The [Korean README](README.ko.md) is the authoritative version. When making changes, update it first and bring this English version into alignment in the same change.
+
+![Whybranch's Korean question interface with answer choices and a field for the reasoning behind them](docs/assets/screenshots/question-form.png)
+
+Record your choices and the reasons behind them in the question interface.
+
+Both screenshots in this document show the real Korean UI using synthetic data from the [public example](examples/first-decision.json) and illustrative draft answers. They do not represent an actual user's decisions or outcomes.
+
+## When should I use it?
+
+- **Choosing a direction for a product or project:** Clarify goals and constraints, then separate what you can decide now from what needs more validation.
+- **Reviewing your experience or preparing for an interview:** Answer questions using your records while keeping actual experience separate from the agent's interpretation.
+- **Agreeing on implementation scope:** Review what the user has chosen, what they have delegated to the agent, and what remains undecided. Reuse existing approvals and delegations.
+
+The connected AI agent writes questions and interprets answers. The Whybranch CLI manages the question interface and local records. The CLI itself does not call AI models or automatically generate follow-up questions.
+
+## Current status
+
+The current version is **`0.1.0-alpha.0`**. You can run it from a source checkout. npm publication and ownership of the `whybranch` package name must be verified before relying on `npx`; do not use `npx` until then. See [RELEASING.md](RELEASING.md) for publication and release preparation.
+
+The default environment is a local workspace used by one person on their own computer. The server binds only to `127.0.0.1`, with no accounts or login. It is not a hosted collaboration service.
 
 ## Quick start
 
-Requires Node.js 20 or newer.
+You need **Node.js 20 or later**. There are no runtime dependencies, so you do not need to run `npm install` before trying the examples.
 
-Start with the included example, or create a small seed file such as `decision.json`:
+Clone the repository, then run this from the project root:
+
+```sh
+git clone https://github.com/omizha/whybranch.git
+cd whybranch
+node ./bin/whybranch.mjs start --seed-file ./examples/first-decision.json
+```
+
+To start without preparing a question file, use the built-in Korean interview question pack:
+
+```sh
+node ./bin/whybranch.mjs start --pack interview
+```
+
+The built-in pack is declarative question data included in the project. It is not an executable plugin. It uses the same interface, storage, and completion process as custom questions, with no hidden scoring inputs.
+
+`start` returns JSON like the following. The ID and port below are illustrative; use the values returned by your actual run.
 
 ```json
 {
-  "objective": "Choose a first validation for a local decision tool",
-  "scope": "One developer workflow",
+  "workspace_id": "local-workspace-id",
+  "url": "http://127.0.0.1:PORT/workspaces/local-workspace-id",
+  "revision": 1,
+  "ledger_revision": 1
+}
+```
+
+1. Open the returned `url` in your browser.
+2. Answer the questions. Your work is saved automatically as a local draft.
+3. To submit your answers, click **`Codex로 계속`** (Continue with Codex). If you are working with an agent, also type **`계속`** (Continue) in the chat. Clicking the button alone does not automatically resume the agent.
+
+Autosaving and submitting answers are separate actions. Unsubmitted drafts are not treated as confirmed answers.
+
+## Using it with an AI agent
+
+Skills for Codex and Claude Code are included. Both use the same canonical skill; see the [agent integration guide](docs/agent-integrations.md) for installation instructions. Copy the entire skill directory, including `SKILL.md` and its reference documents. The CLI must also be available separately.
+
+After installation, you can ask:
+
+```text
+$whybranch Help me identify which assumptions to validate first for this project.
+```
+
+The agent prepares a question pack, reads submitted answers, and presents any needed follow-up questions in the same workspace. It keeps recommendations, user choices, and implementation authority separate. Ordinary exploration and career reflection do not require an implementation approval record.
+
+## Writing your own questions
+
+A seed is a JSON question file. Save the following as `decision.json`:
+
+```json
+{
+  "objective": "Decide what to validate first in a local decision tool",
+  "scope": "One developer's workflow",
   "horizon": "This week",
   "questions": [
     {
       "id": "risk",
-      "prompt": "Which risk must the first validation address?",
+      "prompt": "Which risk should the first validation address?",
       "kind": "choice",
       "selection_mode": "single",
       "options": [
-        { "id": "privacy", "label": "Local-data handling" },
-        { "id": "adoption", "label": "Agent workflow fit" }
+        { "id": "privacy", "label": "Local data handling" },
+        { "id": "adoption", "label": "Fit with the agent workflow" }
       ],
       "allow_other": true
     }
@@ -36,106 +105,119 @@ Start with the included example, or create a small seed file such as `decision.j
     {
       "id": "assumption-local-only",
       "kind": "assumption",
-      "label": "The first release is single-user and loopback-only",
+      "label": "The first version is used by one person on their own computer",
       "impact": "high"
     }
   ]
 }
 ```
 
-From a checkout:
-
 ```sh
-npm install
-node ./bin/decision-graph.mjs start --seed-file ./examples/first-decision.json
+node ./bin/whybranch.mjs start --seed-file ./decision.json
 ```
 
-After the package is published and its npm ownership is verified, the equivalent command is expected to be:
+`questions` contains the questions shown to the user. `material_items` contains explicit assumptions, evidence, counter-evidence, and resolution conditions used in readiness calculations and the graph. Entering answers does not automatically validate or resolve these items. See [examples/first-decision.json](examples/first-decision.json) for a more detailed example.
 
-```sh
-npx --yes decision-graph-interview@<published-version> start --seed-file ./decision.json
-```
+## Continuing in one workspace
 
-`start` prints JSON similar to this:
-
-```json
-{
-  "workspace_id": "local-workspace-id",
-  "url": "http://127.0.0.1:PORT/workspaces/local-workspace-id",
-  "revision": 1
-}
-```
-
-Open the returned URL. Edits are auto-saved locally. The user must still use the form's explicit completion control (for the Korean UI, `Codex로 계속`) before the agent consumes answers.
-
-## One workspace, not a trail of tabs
-
-Keep the `workspace_id` from `start` and use the same local URL for the full decision.
+Keep the `workspace_id` returned at startup. Present subsequent question packs in the same workspace, then archive it when the decision session is complete.
 
 ```text
-start → user edits and auto-saves → explicit completion → consume
-      → agent reasons → advance same workspace/revision → … → finish
+start → write answers and autosave → explicit submission → consume
+      → agent review → follow-up questions with advance → … → archive with finish
 ```
 
 ```sh
-# Inspect a known workspace without guessing.
-node ./bin/decision-graph.mjs status --workspace <workspace_id>
+# Check the current workspace state
+node ./bin/whybranch.mjs status --workspace <workspace_id>
 
-# Read normalized answers only after explicit completion.
-node ./bin/decision-graph.mjs consume --workspace <workspace_id>
+# Read submitted answers
+node ./bin/whybranch.mjs consume --workspace <workspace_id>
 
-# Show a follow-up pack in the same browser workspace.
-node ./bin/decision-graph.mjs advance --workspace <workspace_id> --seed-file ./next-pack.json
+# Show the next questions in the same workspace
+node ./bin/whybranch.mjs advance --workspace <workspace_id> --seed-file ./next-pack.json
 
-# Add a newly discovered explicit blocker, assumption, evidence, or counterevidence.
-node ./bin/decision-graph.mjs add-item --workspace <workspace_id> --item-file ./examples/new-blocker.json
+# Add assumptions, evidence, counter-evidence, or resolution conditions
+node ./bin/whybranch.mjs add-item --workspace <workspace_id> --item-file ./examples/new-blocker.json
 
-# Amend an existing material item after correcting its evidence or interpretation.
-node ./bin/decision-graph.mjs amend-item --workspace <workspace_id> --item <item_id> --patch-file ./examples/validate-assumption.patch.json
+# Correct the evidence or interpretation of an existing item
+node ./bin/whybranch.mjs amend-item --workspace <workspace_id> --item <item_id> --patch-file ./examples/validate-assumption.patch.json
 
-# Flag a bad inference against a visible material-item ID, then recalculate.
-# This never edits a score directly.
-node ./bin/decision-graph.mjs flag-inference --workspace <workspace_id> --item <item_id> --reason "The cited evidence does not support this inference."
+# Flag an unsupported inference and recalculate
+node ./bin/whybranch.mjs flag-inference --workspace <workspace_id> --item <item_id> --reason "The cited evidence does not support this inference."
 
-# Remove temporary local workspace state when done.
-node ./bin/decision-graph.mjs finish --workspace <workspace_id>
+# Resume an existing workspace or recover from verifiable records
+node ./bin/whybranch.mjs recover --workspace <workspace_id>
+
+# Stop the server and archive exact state of the records without deleting them
+node ./bin/whybranch.mjs finish --workspace <workspace_id>
 ```
 
-`advance` returns a new revision while retaining the workspace and URL. When the next seed carries a different `scope_version`, `advance` records a `scope_changed` event and opens a visible high-impact scope-coverage blocker before the pack transition; increment that version only for a material scope change. This deliberately increases remaining uncertainty until the new scope is revalidated. `consume` must not treat an auto-saved draft as a completed answer.
+`advance` increments the question pack revision while keeping the workspace ID and URL. Change the seed's `scope_version` only when the scope materially changes. This records a `scope_changed` event and a requirement to reconfirm the scope; the unresolved burden may increase until revalidation.
 
-## Readiness and graph
+Use `status` to check the ID, URL, revision, ledger revision, and phase after `start`, after the final ledger mutation in an agent turn, and before `advance`. If the URL does not open, check the existing ID first. `recover` resumes the same workspace, but its URL may change depending on port availability. Use the URL returned by recovery.
 
-`Decision Readiness (heuristic/v2)` is a transparent, deterministic review metric. It is **not** a probability, prediction, recommendation, confidence estimate, or a measure of the user's certainty. Given the same normalized ledger and policy version, it must produce the same score and graph projection.
+## Reading readiness and the graph
 
-The score can go down when new counterevidence, a high-impact blocker, a reopened candidate, or a meaningful scope change appears. The workspace summary also exposes **remaining uncertainty (heuristic)** (`unresolved_burden`): it is the policy-derived unresolved burden, not a probability or a prediction. Every change should identify its policy version, rule, affected items, and a plain-language explanation. The graph is the ledger's inspectable projection: it helps show what supports, blocks, contradicts, or re-opens a decision; its visual layout is not causal proof.
+**`Decision Readiness (heuristic/v2)`** is a review indicator derived from the current ledger and published calculation rules. It is not a success probability, prediction, recommendation, confidence score, or measure of the user's certainty. The same ledger and rule version produce the same score and graph.
 
-If a readiness result rests on a bad premise, correct the underlying material evidence with `add-item` or `amend-item`, or use `flag-inference` with the material-item ID shown in the graph panel. These commands append ledger events and recalculate under the same policy; none accepts a manual score override. The original completed response remains immutable provenance; capture a changed user answer in a follow-up pack rather than overwriting it.
+Readiness may decrease when new counter-evidence or important unresolved conditions are added. The **remaining uncertainty**, `unresolved_burden`, is also calculated from recorded ledger items; it is not a probabilistic measurement of uncertainty in the real world. Score changes record the rule version, applied rules, relevant items, and reasons.
 
-See [score and graph semantics](docs/score-and-graph.md) and [the architecture](docs/architecture.md).
+The graph lets you inspect which records support or block questions and decisions. Layout and connecting lines do not establish causality. A candidate's reconsideration state is reflected in candidate-related items and the graph; that state change alone does not reduce overall readiness.
 
-## Local data and no-auth boundary
+![Whybranch decision graph showing unresolved items and details for the selected item](docs/assets/screenshots/decision-graph.png)
 
-The standard workflow stores the seed, workspace state, drafts, and result only on the local machine while the workspace is active. It makes no account, authentication, cloud-sync, telemetry, or remote-collaboration claim.
+Inspect unresolved items and their details in the graph.
 
-No authentication is appropriate only because the supported server is loopback-only and single-user. Browser mutations require JSON and reject a supplied foreign origin; local state mutations are serialized with a private file lock. Do not bind it to a LAN/public interface, share its local state directory, or treat the workspace URL as an access-control mechanism. Use `finish` to remove temporary workspace state and delete private seed files after use. If `start` cannot bring up the listener, it removes the unreachable workspace rather than returning its URL.
+If a premise is wrong, correct the relevant records with `add-item`, `amend-item`, or `flag-inference` instead of editing the score directly. Preserve submitted answers and record a changed user answer through a follow-up question.
 
-See [local data and privacy](docs/local-data.md) for limits and operating guidance.
+For integration development, Whybranch also exports the `decision-semantics/v1` semantic contract. It describes the current vocabulary for items, responses, events, nodes, and relations, while runtime validators check required fields and allowed values. See the [semantic contract](docs/decision-semantics.md) and [score and graph guide](docs/score-and-graph.md) for details.
 
-## Agent integrations
+## Where is data stored?
 
-Codex and Claude Code use one canonical skill source; their adapter folders contain only install metadata and thin pointers, not copied workflow text. See [agent integrations](docs/agent-integrations.md).
+The Whybranch CLI stores question files, drafts, answers, the ledger, and recovery and archive records locally. It does not send them to external services. How a connected AI agent processes answers depends on that agent's execution environment and data policy. Whybranch does not provide accounts, cloud sync, remote collaboration, or user analytics services.
 
-## Contributing and security
+Default state locations:
 
-Run the full local gate before proposing a change:
+| Operating system | Path |
+| --- | --- |
+| macOS | `~/Library/Application Support/whybranch` |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/whybranch` |
+| Windows | `%LOCALAPPDATA%/whybranch` |
+
+You can override the path with `WHYBRANCH_WORKSPACE_ROOT`. Use the same setting for all commands in a session. If this variable is absent, the former name, `DGI_WORKSPACE_ROOT`, is also recognized. Existing workspaces are located by ID in their previous storage locations and used in place. The rename alone does not move workspaces or rewrite their ledgers. See [rename compatibility](docs/local-data.md#rename-compatibility).
+
+Successful saves also update recovery replicas, and transitions between question packs create immutable checkpoints. If recovery replicas cannot also be verified, `storage_health.status` is reported as `degraded`. Stop further mutations and check the same ID with `status` and `recover`. Chat summaries and derived documents do not replace a backup of the original ledger.
+
+The workspace also preserves display settings, including graph view, filters, collapsed groups, selected nodes, and zoom and pan state. Save attempts from a page with an older revision are rejected with `409`. The latest input may not be preserved if it has not yet reached the server, so check that saving has completed. Draft saves have a 450ms delay; display settings have a 300ms delay. This does not restore window position, scrolling, focus, browsing history, or every pixel of the screen.
+
+`finish` stops the server and archives records without deleting them. The CLI has no permanent deletion command. `recover` resumes the same ID from archived records, verified recovery replicas, or checkpoints. Check `recovered_from`, `recovery_exact`, and `recovery_warning`. Recovery from a checkpoint may omit later saves and must not be treated as a complete recovery of the latest state.
+
+The server is limited to local use by one person, without login. Do not expose it through a LAN address, public port, or tunnel, or share the workspace directory. A local URL alone does not enforce access permissions per user. Browser mutation requests must use JSON, and requests that explicitly specify a different origin are rejected. Concurrent local mutations are serialized with file locks. See the [local data guide](docs/local-data.md) for the full scope and recovery procedures.
+
+## Development and contributing
+
+To set up a development environment and check your changes, run:
 
 ```sh
+npm ci --ignore-scripts
 npm test
 npm run lint
 npm run check
 npm run pack:dry-run
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [RELEASING.md](RELEASING.md) before participating or publishing.
+For README changes, **update Korean first, then align English**. Keep the structure, command examples, feature descriptions, and limitations consistent across both documents in the same change.
 
-See [CHANGELOG.md](CHANGELOG.md) for the alpha release boundary.
+| Document | Contents |
+| --- | --- |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and contribution guidelines |
+| [SECURITY.md](SECURITY.md) | Security scope and vulnerability reporting |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor code of conduct |
+| [RELEASING.md](RELEASING.md) | Publication and release preparation |
+| [CHANGELOG.md](CHANGELOG.md) | Changes by version |
+| [docs/architecture.md](docs/architecture.md) | Internal architecture |
+
+## License
+
+Licensed under the [MIT License](LICENSE).

@@ -1,45 +1,20 @@
 import { createHash } from "node:crypto";
+import {
+  COMPONENTS,
+  COMPONENT_ALIASES,
+  COMPONENT_STATUS_CREDIT,
+  DEFAULT_STATUS,
+} from "./decision-semantics.mjs";
+
+export {
+  DECISION_SEMANTICS_VERSION,
+  DECISION_SEMANTICS_V1,
+} from "./decision-semantics.mjs";
 
 export const LEDGER_SCHEMA_VERSION = "decision-graph-ledger/v1";
 export const SEED_SCHEMA_VERSION = "decision-graph-seed/v1";
 
-const COMPONENTS = Object.freeze({
-  evidence: "evidence",
-  blocker: "blocker",
-  assumption: "assumption",
-  contradiction: "contradiction",
-  candidate: "candidate",
-});
-
-const COMPONENT_ALIASES = Object.freeze({
-  evidence: COMPONENTS.evidence,
-  claim: COMPONENTS.evidence,
-  blocker: COMPONENTS.blocker,
-  risk: COMPONENTS.blocker,
-  assumption: COMPONENTS.assumption,
-  contradiction: COMPONENTS.contradiction,
-  conflict: COMPONENTS.contradiction,
-  counterevidence: COMPONENTS.contradiction,
-  candidate: COMPONENTS.candidate,
-});
-
 const IMPACT_ALIASES = Object.freeze({ low: 1, medium: 3, high: 5, critical: 5 });
-
-const COMPONENT_STATUS_CREDIT = Object.freeze({
-  [COMPONENTS.evidence]: Object.freeze({ unknown: 0, weak: 0.25, corroborated: 0.6, verified: 1, disputed: 0 }),
-  [COMPONENTS.blocker]: Object.freeze({ open: 0, planned: 0.25, mitigated: 0.6, resolved: 1, reopened: 0 }),
-  [COMPONENTS.assumption]: Object.freeze({ untested: 0, partial: 0.5, validated: 1, invalidated: 0, reopened: 0 }),
-  [COMPONENTS.contradiction]: Object.freeze({ open: 0, investigating: 0.25, mitigated: 0.6, resolved: 1, reopened: 0 }),
-  [COMPONENTS.candidate]: Object.freeze({ emerging: 0.25, active: 0.5, frozen: 1, reopened: 0, archived: 1 }),
-});
-
-const DEFAULT_STATUS = Object.freeze({
-  [COMPONENTS.evidence]: "unknown",
-  [COMPONENTS.blocker]: "open",
-  [COMPONENTS.assumption]: "untested",
-  [COMPONENTS.contradiction]: "open",
-  [COMPONENTS.candidate]: "emerging",
-});
 
 const DISPLAY_DIMENSIONS = Object.freeze([
   [COMPONENTS.evidence, "information_completeness", "Information completeness"],
@@ -165,31 +140,39 @@ function normalizeQuestion(question, index, seen) {
 
 function normalizeImpact(value, field) {
   if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 5) return value;
-  if (typeof value === "string" && IMPACT_ALIASES[value.trim().toLowerCase()] !== undefined) return IMPACT_ALIASES[value.trim().toLowerCase()];
+  if (typeof value === "string") {
+    const alias = value.trim().toLowerCase();
+    if (Object.hasOwn(IMPACT_ALIASES, alias)) return IMPACT_ALIASES[alias];
+  }
   throw new Error(`${field} must be an integer from 1 to 5 or low, medium, high, or critical`);
 }
 
 function normalizeComponent(value, field) {
   const key = nonEmptyString(value, field).toLowerCase();
-  const component = COMPONENT_ALIASES[key];
-  if (!component) throw new Error(`${field} must name evidence, blocker, assumption, contradiction, or candidate`);
-  return component;
+  if (!Object.hasOwn(COMPONENT_ALIASES, key)) throw new Error(`${field} must name evidence, blocker, assumption, contradiction, or candidate`);
+  return COMPONENT_ALIASES[key];
 }
 
-function normalizeMaterialItem(item, index, questionIds) {
+function normalizeMaterialItem(item, index, questionIds, allowLegacyCandidateId = false) {
   if (!isPlainObject(item)) throw new Error(`seed.material_items[${index}] must be an object`);
   const component = normalizeComponent(item.component ?? item.kind, `seed.material_items[${index}].kind`);
   const id = safeIdentifier(item.id, `seed.material_items[${index}].id`);
   const statuses = COMPONENT_STATUS_CREDIT[component];
   const status = (item.status ?? DEFAULT_STATUS[component]).toString().trim().toLowerCase();
-  if (statuses[status] === undefined) {
+  if (!Object.hasOwn(statuses, status)) {
     throw new Error(`seed.material_items[${index}].status is not valid for ${component}`);
   }
   let relatedQuestionId = optionalString(item.related_question_id ?? item.question_id, `seed.material_items[${index}].related_question_id`);
   if (relatedQuestionId) {
-    relatedQuestionId = relatedQuestionId.replace(/^q:/, "");
-    if (!questionIds.has(relatedQuestionId)) throw new Error(`seed.material_items[${index}].related_question_id does not name a question`);
+    const prefixedQuestionId = relatedQuestionId.replace(/^q:/, "");
+    relatedQuestionId = questionIds.has(relatedQuestionId)
+      ? relatedQuestionId
+      : questionIds.has(prefixedQuestionId)
+        ? prefixedQuestionId
+        : undefined;
+    if (!relatedQuestionId) throw new Error(`seed.material_items[${index}].related_question_id does not name a question`);
   }
+  const candidateId = optionalString(item.candidate_id, `seed.material_items[${index}].candidate_id`);
   const normalized = {
     id,
     component,
@@ -199,7 +182,9 @@ function normalizeMaterialItem(item, index, questionIds) {
     evidence_grade: optionalString(item.evidence_grade, `seed.material_items[${index}].evidence_grade`),
     source: optionalString(item.source, `seed.material_items[${index}].source`),
     related_question_id: relatedQuestionId,
-    candidate_id: optionalString(item.candidate_id, `seed.material_items[${index}].candidate_id`),
+    candidate_id: candidateId === undefined || allowLegacyCandidateId
+      ? candidateId
+      : safeIdentifier(candidateId, `seed.material_items[${index}].candidate_id`),
     detail: optionalString(item.detail ?? item.rationale ?? item.reason, `seed.material_items[${index}].detail`),
   };
   return Object.fromEntries(Object.entries(normalized).filter(([, entry]) => entry !== undefined));
@@ -211,6 +196,8 @@ function normalizeMaterialItem(item, index, questionIds) {
  */
 export function normalizeSeed(input) {
   if (!isPlainObject(input)) throw new Error("seed must be an object");
+  const schemaVersion = input.schema_version ?? SEED_SCHEMA_VERSION;
+  if (schemaVersion !== SEED_SCHEMA_VERSION) throw new Error("seed has an invalid schema version");
   const questionSeen = new Set();
   const questionsInput = optionalArray(input.questions, "seed.questions");
   if (questionsInput.length === 0) throw new Error("seed.questions must contain at least one question");
@@ -237,7 +224,7 @@ export function normalizeSeed(input) {
       }).filter(([, entry]) => entry !== undefined));
     })();
   const normalized = {
-    schema_version: input.schema_version ?? SEED_SCHEMA_VERSION,
+    schema_version: schemaVersion,
     objective: nonEmptyString(input.objective, "seed.objective"),
     scope: optionalString(input.scope, "seed.scope"),
     horizon: optionalString(input.horizon, "seed.horizon"),
@@ -254,6 +241,105 @@ export function normalizeSeed(input) {
   return Object.fromEntries(Object.entries(normalized).filter(([, entry]) => entry !== undefined));
 }
 
+const COMPLETED_RESPONSE_RESOLUTIONS = new Set(["answer", "defer", "not_applicable", "withdrawn"]);
+
+function assertStoredIdentifier(value, field) {
+  const normalized = safeIdentifier(value, field);
+  if (normalized !== value) throw new Error(field + " must already be normalized");
+  return normalized;
+}
+
+function normalizeCompletedResponses(value, questions, field, allowLegacy = false) {
+  if (!Array.isArray(value)) throw new Error(field + " must be an array");
+  if (value.length === 0) throw new Error(field + " must contain at least one response");
+  const questionById = new Map(questions.map((question) => [question.id, question]));
+  const seen = new Set();
+  const normalizedResponses = [];
+  for (const [index, response] of value.entries()) {
+    const responseField = field + "[" + index + "]";
+    if (!isPlainObject(response)) throw new Error(responseField + " must be an object");
+    const rawQuestionId = safeIdentifier(response.question_id, responseField + ".question_id");
+    const prefixedQuestionId = rawQuestionId.replace(/^q:/, "");
+    const questionId = questionById.has(prefixedQuestionId)
+      ? prefixedQuestionId
+      : questionById.has(rawQuestionId)
+        ? rawQuestionId
+        : undefined;
+    if (!questionId || seen.has(questionId)) {
+      throw new Error(responseField + " refers to an unknown or duplicate question");
+    }
+    seen.add(questionId);
+    const question = questionById.get(questionId);
+    const rawResolution = response.resolution === undefined && allowLegacy
+      ? "answer"
+      : nonEmptyString(response.resolution, responseField + ".resolution");
+    const resolution = rawResolution === "withdraw" ? "withdrawn" : rawResolution;
+    if (!COMPLETED_RESPONSE_RESOLUTIONS.has(resolution)) {
+      throw new Error(responseField + ".resolution is unsupported");
+    }
+    if (resolution === "answer") {
+      if (!isPlainObject(response.answer)) throw new Error(responseField + ".answer is required");
+      const answer = {};
+      const optionId = optionalString(response.answer.option_id, responseField + ".answer.option_id");
+      const optionIdsInput = response.answer.option_ids;
+      let optionIds;
+      if (optionIdsInput !== undefined && optionIdsInput !== null) {
+        if (!Array.isArray(optionIdsInput)) throw new Error(responseField + ".answer.option_ids must be an array when provided");
+        optionIds = optionIdsInput.map((value, optionIndex) => safeIdentifier(value, responseField + ".answer.option_ids[" + optionIndex + "]"));
+        if (new Set(optionIds).size !== optionIds.length) throw new Error(responseField + ".answer.option_ids must not contain duplicates");
+      }
+      const availableOptions = new Set((question.options ?? []).map((option) => option.id));
+      if ((question.selection_mode ?? "single") === "multiple") {
+        if (optionId) throw new Error(responseField + ".answer.option_id is only supported for single-select questions");
+        for (const selected of optionIds ?? []) {
+          if (!availableOptions.has(selected)) throw new Error(responseField + ".answer.option_ids contains an option that is not valid for this question");
+        }
+        if (optionIds?.length) answer.option_ids = optionIds;
+      } else {
+        if (optionIds !== undefined) throw new Error(responseField + ".answer.option_ids is only supported for multiple-select questions");
+        if (optionId && !availableOptions.has(optionId)) throw new Error(responseField + ".answer.option_id is not an option for this question");
+        if (optionId) answer.option_id = optionId;
+      }
+      const otherText = optionalString(response.answer.other_text, responseField + ".answer.other_text");
+      if (otherText) {
+        if (question.allow_other !== true) throw new Error(responseField + ".answer.other_text is not allowed for this question");
+        answer.other_text = otherText;
+      }
+      const answerText = optionalString(response.answer.text, responseField + ".answer.text");
+      if (answerText) answer.text = answerText;
+      if (Object.keys(answer).length === 0) {
+        throw new Error(responseField + ".answer must include an option or text");
+      }
+      normalizedResponses.push({ question_id: "q:" + questionId, resolution, answer });
+      continue;
+    }
+    const detailKey = resolution === "defer"
+      ? "deferral"
+      : resolution === "not_applicable"
+        ? "not_applicable"
+        : "withdrawal";
+    if (!isPlainObject(response[detailKey])) {
+      if (allowLegacy) {
+        normalizedResponses.push({ question_id: "q:" + questionId, resolution });
+        continue;
+      }
+      throw new Error(responseField + "." + detailKey + " is required when resolution is " + resolution);
+    }
+    if (allowLegacy && (response[detailKey].reason === undefined || response[detailKey].reason === "")) {
+      normalizedResponses.push({ question_id: "q:" + questionId, resolution, [detailKey]: {} });
+      continue;
+    }
+    const reason = nonEmptyString(response[detailKey].reason, responseField + "." + detailKey + ".reason");
+    const detail = { reason };
+    if (resolution === "defer") {
+      const clue = optionalString(response[detailKey].clue, responseField + ".deferral.clue");
+      if (clue) detail.clue = clue;
+    }
+    normalizedResponses.push({ question_id: "q:" + questionId, resolution, [detailKey]: detail });
+  }
+  return normalizedResponses;
+}
+
 function normalizeLedger(ledger) {
   if (!isPlainObject(ledger) || ledger.schema_version !== LEDGER_SCHEMA_VERSION) {
     throw new Error("ledger has an invalid schema version");
@@ -261,6 +347,99 @@ function normalizeLedger(ledger) {
   if (!Number.isInteger(ledger.revision) || ledger.revision < 0) throw new Error("ledger revision must be a non-negative integer");
   if (!Array.isArray(ledger.items) || !Array.isArray(ledger.events) || !Array.isArray(ledger.questions)) {
     throw new Error("ledger is missing canonical arrays");
+  }
+  assertStoredIdentifier(ledger.decision_id, "ledger.decision_id");
+  if (!isPlainObject(ledger.seed)) throw new Error("ledger.seed must be an object");
+  if (ledger.seed.schema_version !== SEED_SCHEMA_VERSION) throw new Error("ledger.seed has an invalid schema version");
+  const seedObjective = nonEmptyString(ledger.seed.objective, "ledger.seed.objective");
+  if (seedObjective !== ledger.seed.objective) throw new Error("ledger.seed.objective must already be normalized");
+  const seedScope = optionalString(ledger.seed.scope, "ledger.seed.scope");
+  if (seedScope !== ledger.seed.scope) throw new Error("ledger.seed.scope must already be normalized");
+  const seedQuestionsInput = optionalArray(ledger.seed.questions, "ledger.seed.questions");
+  if (seedQuestionsInput.length === 0 || seedQuestionsInput.length > 12) {
+    throw new Error("ledger.seed.questions must contain from 1 to 12 questions");
+  }
+  const seedQuestionIds = new Set();
+  const seedQuestions = seedQuestionsInput.map((question, index) => {
+    const normalized = normalizeQuestion(question, index, seedQuestionIds);
+    if (JSON.stringify(canonical(normalized)) !== JSON.stringify(canonical(question))) {
+      throw new Error("ledger.seed.questions[" + index + "] must already be normalized");
+    }
+    return normalized;
+  });
+  const expectedDecisionId = `decision-${hash({ objective: seedObjective, scope: seedScope, questions: seedQuestions.map((question) => question.id) }).slice(0, 20)}`;
+  if (ledger.decision_id !== expectedDecisionId) throw new Error("ledger.decision_id does not match the embedded seed identity");
+  if (!isPlainObject(ledger.scope)) throw new Error("ledger.scope must be an object");
+  nonEmptyString(ledger.scope.label, "ledger.scope.label");
+  nonEmptyString(ledger.scope.version, "ledger.scope.version");
+
+  const questionIds = new Set();
+  for (const [index, question] of ledger.questions.entries()) {
+    const normalized = normalizeQuestion(question, index, questionIds);
+    if (JSON.stringify(canonical(normalized)) !== JSON.stringify(canonical(question))) {
+      throw new Error("ledger.questions[" + index + "] must already be normalized");
+    }
+  }
+  for (const seedQuestion of seedQuestions) {
+    const ledgerQuestion = ledger.questions.find((question) => question.id === seedQuestion.id);
+    if (!ledgerQuestion || JSON.stringify(canonical(ledgerQuestion)) !== JSON.stringify(canonical(seedQuestion))) {
+      throw new Error("ledger.seed question does not match the canonical ledger question: " + seedQuestion.id);
+    }
+  }
+
+  const itemIds = new Set();
+  for (const [index, item] of ledger.items.entries()) {
+    if (!isPlainObject(item) || !Object.values(COMPONENTS).includes(item.component)) {
+      throw new Error("ledger.items[" + index + "] has an invalid material item component");
+    }
+    const itemId = assertStoredIdentifier(item.id, "ledger.items[" + index + "].id");
+    if (itemIds.has(itemId)) throw new Error("ledger.items contains duplicate id: " + itemId);
+    itemIds.add(itemId);
+    const normalized = normalizeMaterialItem(item, index, questionIds, true);
+    if (normalized.component !== item.component || normalized.status !== item.status || normalized.impact !== item.impact) {
+      throw new Error("ledger.items[" + index + "] is not canonical");
+    }
+    if (normalized.related_question_id !== item.related_question_id) {
+      throw new Error("ledger.items[" + index + "].related_question_id must already be normalized");
+    }
+    if (item.candidate_id !== undefined) {
+      const candidateId = nonEmptyString(item.candidate_id, "ledger.items[" + index + "].candidate_id");
+      if (candidateId !== item.candidate_id) throw new Error("ledger.items[" + index + "].candidate_id must already be normalized");
+    }
+  }
+
+  const eventIds = new Set();
+  for (const [index, event] of ledger.events.entries()) {
+    if (!isPlainObject(event)) throw new Error("ledger.events[" + index + "] must be an object");
+    const eventId = assertStoredIdentifier(event.event_id, "ledger.events[" + index + "].event_id");
+    if (eventIds.has(eventId)) throw new Error("ledger.events contains duplicate event_id: " + eventId);
+    eventIds.add(eventId);
+    assertStoredIdentifier(event.type, "ledger.events[" + index + "].type");
+    if (!Array.isArray(event.entity_ids)) throw new Error("ledger.events[" + index + "].entity_ids must be an array");
+    const entityIds = new Set();
+    for (const [entityIndex, entityId] of event.entity_ids.entries()) {
+      const normalized = assertStoredIdentifier(entityId, "ledger.events[" + index + "].entity_ids[" + entityIndex + "]");
+      if (entityIds.has(normalized)) throw new Error("ledger.events[" + index + "].entity_ids must not contain duplicates");
+      entityIds.add(normalized);
+    }
+    if (!isPlainObject(event.payload)) throw new Error("ledger.events[" + index + "].payload must be an object");
+    if (event.type === "pack_completed") {
+      normalizeCompletedResponses(event.payload.responses, ledger.questions, "ledger.events[" + index + "].payload.responses", true);
+    }
+    if (["item_created", "material_item_added", "item_updated", "item_reopened", "item_resolved", "inference_flagged"].includes(event.type)) {
+      const payloadItemId = event.type === "item_created" || event.type === "material_item_added"
+        ? event.payload.item?.id ?? event.payload.material_item?.id
+        : event.payload.item_id;
+      const targetId = safeIdentifier(payloadItemId ?? event.entity_ids[0], "ledger.events[" + index + "] target item id");
+      const targetItem = ledger.items.find((item) => item.id === targetId);
+      if (!targetItem) throw new Error("ledger.events[" + index + "] refers to an unknown material item: " + targetId);
+      if (event.type === "item_reopened" && !Object.hasOwn(COMPONENT_STATUS_CREDIT[targetItem.component], "reopened")) {
+        throw new Error("item_reopened is not supported for " + targetItem.component);
+      }
+      if (event.type === "item_resolved" && !Object.hasOwn(COMPONENT_STATUS_CREDIT[targetItem.component], "resolved")) {
+        throw new Error("item_resolved is not supported for " + targetItem.component);
+      }
+    }
   }
   return clone(ledger);
 }
@@ -325,6 +504,8 @@ function itemForEvent(event) {
 
 function registerQuestions(existingQuestions, incomingQuestions) {
   if (!Array.isArray(incomingQuestions)) throw new Error("pack_advanced requires payload.questions to be an array");
+  if (incomingQuestions.length === 0) throw new Error("pack_advanced payload.questions must contain at least one question");
+  if (incomingQuestions.length > 12) throw new Error("pack_advanced payload.questions must contain no more than 12 questions");
   const seen = new Set();
   const normalized = incomingQuestions.map((question, index) => normalizeQuestion(question, index, seen));
   const existingById = new Map(existingQuestions.map((question) => [question.id, question]));
@@ -356,27 +537,48 @@ export function appendEvent(ledgerInput, eventInput, policy = DEFAULT_SCORING_PO
   const previous = normalizeLedger(ledgerInput);
   const nextRevision = previous.revision + 1;
   const event = normalizeEvent(eventInput, nextRevision);
+  if (event.type === "ledger_created" || event.type === "score_changed") {
+    throw new Error(event.type + " is generated internally and cannot be appended by a caller");
+  }
+  if (previous.events.some((entry) => entry.event_id === event.event_id)) {
+    throw new Error("event creates duplicate event_id: " + event.event_id);
+  }
   let items = clone(previous.items);
   let scope = clone(previous.scope);
   let questions = clone(previous.questions);
   let questionIds = new Set(questions.map((question) => question.id));
 
+  if (event.type === "pack_completed") {
+    event.payload.responses = normalizeCompletedResponses(event.payload.responses, questions, "event.payload.responses");
+    const answeredQuestionIds = new Set(event.payload.responses.map((response) => response.question_id.replace(/^q:/, "")));
+    event.entity_ids = items
+      .filter((item) => item.related_question_id && answeredQuestionIds.has(item.related_question_id))
+      .map((item) => item.id)
+      .sort();
+  }
+
   if (event.type === "item_created" || event.type === "material_item_added") {
     const item = normalizeMaterialItem(itemForEvent(event), items.length, questionIds);
     if (items.some((entry) => entry.id === item.id)) throw new Error(`event creates duplicate material item: ${item.id}`);
     items.push(item);
-    event.entity_ids = [...new Set([...event.entity_ids, item.id])].sort();
+    event.payload.item = clone(item);
+    delete event.payload.material_item;
+    event.entity_ids = [item.id];
   } else if (event.type === "item_updated") {
     const itemId = safeIdentifier(event.payload.item_id ?? event.entity_ids[0], "event.payload.item_id");
     const patch = event.payload.patch;
     if (!isPlainObject(patch)) throw new Error("item_updated requires payload.patch");
-    for (const immutableField of ["id", "kind", "component"]) {
+    for (const immutableField of ["id", "kind", "component", "inference_flagged"]) {
       if (Object.hasOwn(patch, immutableField)) {
         throw new Error(`item_updated cannot change ${immutableField}`);
       }
     }
-    items = replaceItem(items, itemId, (current) => normalizeMaterialItem({ ...current, ...patch, id: current.id, kind: current.component }, 0, questionIds));
-    event.entity_ids = [...new Set([...event.entity_ids, itemId])].sort();
+    items = replaceItem(items, itemId, (current) => {
+      const normalized = normalizeMaterialItem({ ...current, ...patch, id: current.id, kind: current.component }, 0, questionIds);
+      return current.inference_flagged === true ? { ...normalized, inference_flagged: true } : normalized;
+    });
+    event.payload.item_id = itemId;
+    event.entity_ids = [itemId];
   } else if (event.type === "item_reopened" || event.type === "item_resolved" || event.type === "inference_flagged") {
     const itemId = safeIdentifier(event.payload.item_id ?? event.entity_ids[0], "event.payload.item_id");
     items = replaceItem(items, itemId, (current) => {
@@ -393,35 +595,53 @@ export function appendEvent(ledgerInput, eventInput, policy = DEFAULT_SCORING_PO
       }
       return { ...current, status };
     });
-    event.entity_ids = [...new Set([...event.entity_ids, itemId])].sort();
+    event.payload.item_id = itemId;
+    event.entity_ids = [itemId];
   } else if (event.type === "scope_changed") {
     const version = optionalString(event.payload.scope_version, "event.payload.scope_version");
     if (!version) throw new Error("scope_changed requires payload.scope_version");
-    scope = { label: optionalString(event.payload.scope, "event.payload.scope") ?? scope.label, version };
+    if (version === previous.scope.version) throw new Error("scope_changed requires a new scope_version");
+    const priorScopeVersions = new Set([
+      previous.seed.scope_version,
+      ...previous.events
+        .filter((entry) => entry.type === "scope_changed")
+        .map((entry) => entry.payload.scope_version),
+    ].filter((entry) => typeof entry === "string").map((entry) => entry.trim()));
+    if (priorScopeVersions.has(version)) throw new Error("scope_changed cannot reuse a prior scope_version");
+    const scopeLabel = optionalString(event.payload.scope, "event.payload.scope") ?? scope.label;
+    scope = { label: scopeLabel, version };
+    event.payload.scope = scopeLabel;
+    event.payload.scope_version = version;
     // A material scope revision makes prior coverage incomplete until it is
     // reviewed again. Record that explicitly as a visible blocker instead of
     // silently carrying the former score into a new decision boundary.
-    const coverageId = `scope-coverage-${hash({ label: scope.label, version: scope.version }).slice(0, 12)}`;
-    if (!items.some((item) => item.id === coverageId)) {
-      const coverage = normalizeMaterialItem({
-        id: coverageId,
-        kind: "blocker",
-        label: `Scope ${scope.version} coverage needs revalidation`,
-        impact: "high",
-        status: "open",
-        source: "scope_changed",
-        detail: "A material scope change requires an explicit coverage review before prior readiness can be relied on.",
-      }, items.length, questionIds);
-      items.push(coverage);
-      event.entity_ids = [...new Set([...event.entity_ids, coverageId])].sort();
-      event.payload.scope_coverage_item_id = coverageId;
+    const baseCoverageId = `scope-coverage-${hash({ label: scope.label, version: scope.version }).slice(0, 12)}`;
+    let coverageId = baseCoverageId;
+    let coverageSuffix = 2;
+    while (items.some((item) => item.id === coverageId)) {
+      coverageId = `${baseCoverageId}-${coverageSuffix}`;
+      coverageSuffix += 1;
     }
-  } else if (event.type === "pack_advanced" && event.payload.questions !== undefined) {
+    const coverage = normalizeMaterialItem({
+      id: coverageId,
+      kind: "blocker",
+      label: `Scope ${scope.version} coverage needs revalidation`,
+      impact: "high",
+      status: "open",
+      source: "scope_changed",
+      detail: "A material scope change requires an explicit coverage review before prior readiness can be relied on.",
+    }, items.length, questionIds);
+    items.push(coverage);
+    event.payload.scope_coverage_item_id = coverageId;
+    event.entity_ids = [coverageId];
+  } else if (event.type === "pack_advanced") {
     const registration = registerQuestions(questions, event.payload.questions);
     questions = registration.questions;
     questionIds = new Set(questions.map((question) => question.id));
     event.payload.questions = registration.normalized;
     event.payload.question_ids = registration.normalized.map((question) => question.id);
+    event.payload.introduced_question_ids = registration.additions.map((question) => question.id);
+    event.entity_ids = [];
   }
 
   const updated = {
@@ -435,7 +655,15 @@ export function appendEvent(ledgerInput, eventInput, policy = DEFAULT_SCORING_PO
   const before = computeReadiness(previous, policy);
   const after = computeReadiness(updated, policy);
   const scoreEvent = createScoreEvent(before, after, event);
-  if (scoreEvent) updated.events.push(scoreEvent);
+  if (scoreEvent) {
+    const baseEventId = scoreEvent.event_id;
+    let suffix = 2;
+    while (updated.events.some((entry) => entry.event_id === scoreEvent.event_id)) {
+      scoreEvent.event_id = `${baseEventId}-${suffix}`;
+      suffix += 1;
+    }
+    updated.events.push(scoreEvent);
+  }
   return updated;
 }
 
@@ -448,12 +676,48 @@ function normalizePolicy(policyInput) {
       throw new Error(`invalid readiness weight for ${component}`);
     }
   }
+  const suppliedCredits = policy.status_credit;
+  if (suppliedCredits !== undefined && !isPlainObject(suppliedCredits)) {
+    throw new Error("policy.status_credit must be an object when provided");
+  }
+  for (const component of Object.keys(suppliedCredits ?? {})) {
+    if (!Object.hasOwn(COMPONENT_STATUS_CREDIT, component)) {
+      throw new Error("policy.status_credit names an unknown component: " + component);
+    }
+  }
+  const statusCredit = {};
+  for (const [component, defaults] of Object.entries(COMPONENT_STATUS_CREDIT)) {
+    const overrides = suppliedCredits?.[component];
+    if (overrides !== undefined && !isPlainObject(overrides)) {
+      throw new Error("policy.status_credit." + component + " must be an object when provided");
+    }
+    for (const status of Object.keys(overrides ?? {})) {
+      if (!Object.hasOwn(defaults, status)) {
+        throw new Error("policy.status_credit." + component + " names an unknown status: " + status);
+      }
+    }
+    const credits = { ...defaults, ...(overrides ?? {}) };
+    for (const [status, credit] of Object.entries(credits)) {
+      if (typeof credit !== "number" || !Number.isFinite(credit) || credit < 0 || credit > 1) {
+        throw new Error("policy.status_credit." + component + "." + status + " must be a finite number from 0 to 1");
+      }
+    }
+    statusCredit[component] = credits;
+  }
   return {
     id: optionalString(policy.id, "policy.id") ?? DEFAULT_SCORING_POLICY.id,
     version: optionalString(policy.version, "policy.version") ?? DEFAULT_SCORING_POLICY.version,
     label: optionalString(policy.label, "policy.label") ?? DEFAULT_SCORING_POLICY.label,
     readiness_weights: weights,
-    status_credit: policy.status_credit ?? DEFAULT_SCORING_POLICY.status_credit,
+    status_credit: statusCredit,
+  };
+}
+
+function normalizeLegacyPolicy(policyInput) {
+  const normalized = normalizePolicy(policyInput);
+  return {
+    ...normalized,
+    status_credit: policyInput?.status_credit ?? DEFAULT_SCORING_POLICY.status_credit,
   };
 }
 
@@ -492,9 +756,7 @@ function scoreComponent(items, component, policy) {
  * excluded rather than treated as 100, and candidate convergence is visible
  * but not part of the headline readiness score.
  */
-export function computeReadiness(ledgerInput, policyInput = DEFAULT_SCORING_POLICY) {
-  const ledger = normalizeLedger(ledgerInput);
-  const policy = normalizePolicy(policyInput);
+function computeReadinessFromNormalized(ledger, policy, includePolicyDefinition = true) {
   const policyHash = hash({ id: policy.id, version: policy.version, readiness_weights: policy.readiness_weights, status_credit: policy.status_credit });
   const dimensions = {};
   for (const [component, key, label] of DISPLAY_DIMENSIONS) {
@@ -534,13 +796,30 @@ export function computeReadiness(ledgerInput, policyInput = DEFAULT_SCORING_POLI
     label: policy.label,
     score,
     unresolved_burden: score === null ? null : round(100 - score),
-    policy: { id: policy.id, version: policy.version, hash: policyHash },
+    policy: {
+      id: policy.id,
+      version: policy.version,
+      hash: policyHash,
+      ...(includePolicyDefinition
+        ? {
+            definition: {
+              label: policy.label,
+              readiness_weights: clone(policy.readiness_weights),
+              status_credit: clone(policy.status_credit),
+            },
+          }
+        : {}),
+    },
     ledger_revision: ledger.revision,
     scope_version: ledger.scope.version,
     dimensions,
     open_item_ids: [...new Set(open)].sort(),
     rationale,
   };
+}
+
+export function computeReadiness(ledgerInput, policyInput = DEFAULT_SCORING_POLICY) {
+  return computeReadinessFromNormalized(normalizeLedger(ledgerInput), normalizePolicy(policyInput));
 }
 
 export function createScoreEvent(previous, next, cause = {}) {
@@ -567,6 +846,10 @@ export function createScoreEvent(previous, next, cause = {}) {
     entity_ids: affectedItemIds,
     payload: {
       policy_version: `${next?.policy?.id ?? "unknown"}/v${next?.policy?.version ?? "unknown"}`,
+      policy_hash: next?.policy?.hash ?? null,
+      ...(isPlainObject(next?.policy?.definition)
+        ? { policy_definition: clone(next.policy.definition) }
+        : {}),
       rule_id: scopeReset ? "scope-rebaseline" : "impact-and-component-weighted-readiness",
       previous_value: previousValue,
       next_value: nextValue,
@@ -577,73 +860,227 @@ export function createScoreEvent(previous, next, cause = {}) {
   };
 }
 
+function graphEdgeId(from, type, to) {
+  return `edge:${encodeURIComponent(from)}:${encodeURIComponent(type)}:${encodeURIComponent(to)}`;
+}
+
+function graphAnswerNodeId(eventId, questionId) {
+  return `answer:${encodeURIComponent(eventId)}:${encodeURIComponent(questionId)}`;
+}
+
+function storedItemId(value, ledger) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return ledger.items.some((item) => item.id === normalized) ? normalized : undefined;
+}
+
+function projectedEventEntityIds(event, ledger) {
+  if (event.type === "item_created" || event.type === "material_item_added") {
+    const payloadId = event.payload?.item?.id ?? event.payload?.material_item?.id;
+    return [storedItemId(payloadId, ledger) ?? event.entity_ids?.find((id) => storedItemId(id, ledger))].filter(Boolean);
+  }
+  if (["item_updated", "item_reopened", "item_resolved", "inference_flagged"].includes(event.type)) {
+    return [storedItemId(event.payload?.item_id, ledger) ?? event.entity_ids?.find((id) => storedItemId(id, ledger))].filter(Boolean);
+  }
+  if (event.type === "scope_changed") {
+    return [storedItemId(event.payload?.scope_coverage_item_id, ledger) ?? event.entity_ids?.find((id) => storedItemId(id, ledger))].filter(Boolean);
+  }
+  if (event.type === "pack_completed") return event.entity_ids ?? [];
+  if (event.type === "pack_advanced" || event.type === "ledger_created") return [];
+  return event.entity_ids ?? [];
+}
+
+function resolveLedgerQuestionId(value, ledger) {
+  if (typeof value !== "string") return undefined;
+  const rawQuestionId = value.trim();
+  const prefixedQuestionId = rawQuestionId.replace(/^q:/, "");
+  if (ledger.questions.some((question) => question.id === rawQuestionId)) return rawQuestionId;
+  if (ledger.questions.some((question) => question.id === prefixedQuestionId)) return prefixedQuestionId;
+  return undefined;
+}
+
+function introducedQuestionsByEvent(ledger) {
+  const initialQuestionIds = Array.isArray(ledger.seed.questions)
+    ? ledger.seed.questions.map((question) => question?.id).filter((id) => typeof id === "string")
+    : [];
+  const seen = new Set(initialQuestionIds);
+  const introducedByEvent = new Map();
+  for (const event of ledger.events) {
+    if (event.type !== "pack_advanced") continue;
+    const questionIds = Array.isArray(event.payload?.question_ids)
+      ? event.payload.question_ids
+      : Array.isArray(event.payload?.questions)
+        ? event.payload.questions.map((question) => question?.id)
+        : Array.isArray(event.payload?.introduced_question_ids)
+          ? event.payload.introduced_question_ids
+          : [];
+    const canonicalQuestionIds = questionIds
+      .map((questionId) => resolveLedgerQuestionId(questionId, ledger))
+      .filter(Boolean);
+    const requestedIntroductions = Array.isArray(event.payload?.introduced_question_ids)
+      ? event.payload.introduced_question_ids
+          .map((questionId) => resolveLedgerQuestionId(questionId, ledger))
+          .filter(Boolean)
+      : canonicalQuestionIds;
+    introducedByEvent.set(event.event_id, [...new Set(requestedIntroductions.filter((questionId) => !seen.has(questionId)))]);
+    for (const questionId of canonicalQuestionIds) seen.add(questionId);
+  }
+  return introducedByEvent;
+}
+
 /**
  * Project the ledger into stable nodes and semantic edges. Layout is left to
  * the UI; callers must not treat visual proximity as causal proof.
  */
-export function projectGraph(ledgerInput, readinessInput = undefined) {
+export function projectGraph(ledgerInput, readinessInput = undefined, legacyPolicyInput = undefined) {
   const ledger = normalizeLedger(ledgerInput);
-  const readiness = readinessInput ?? computeReadiness(ledger);
+  let readiness;
+  if (readinessInput === undefined) {
+    readiness = computeReadiness(ledger);
+  } else {
+    const definition = readinessInput?.policy?.definition;
+    let comparableReadiness;
+    if (isPlainObject(definition)) {
+      const receiptPolicy = {
+          id: readinessInput.policy.id,
+          version: readinessInput.policy.version,
+          label: definition.label,
+          readiness_weights: definition.readiness_weights,
+          status_credit: definition.status_credit,
+        };
+      readiness = computeReadiness(ledger, receiptPolicy);
+      comparableReadiness = readiness;
+    } else if (legacyPolicyInput !== undefined) {
+      readiness = computeReadinessFromNormalized(ledger, normalizeLegacyPolicy(legacyPolicyInput), false);
+      comparableReadiness = readiness;
+    } else {
+      readiness = computeReadiness(ledger);
+      comparableReadiness = clone(readiness);
+      delete comparableReadiness.policy.definition;
+    }
+    if (JSON.stringify(canonical(readinessInput)) !== JSON.stringify(canonical(comparableReadiness))) {
+      throw new Error("readiness snapshot does not match the canonical ledger and scoring policy receipt");
+    }
+  }
   const nodes = [];
   const edges = [];
+  const introducedByEvent = introducedQuestionsByEvent(ledger);
   const decisionNodeId = `decision:${ledger.decision_id}`;
   nodes.push({ id: decisionNodeId, type: "decision", label: ledger.seed.objective, scope_version: ledger.scope.version });
   for (const question of ledger.questions) {
     const id = `question:${question.id}`;
     nodes.push({ id, type: "question", label: question.prompt });
-    edges.push({ id: `edge:${decisionNodeId}:asks:${id}`, from: decisionNodeId, to: id, type: "asks" });
+    edges.push({ id: graphEdgeId(decisionNodeId, "asks", id), from: decisionNodeId, to: id, type: "asks" });
   }
   for (const item of ledger.items) {
     const id = `item:${item.id}`;
-    nodes.push({ id, type: item.component, label: item.label, status: item.status, impact: item.impact, source: item.source ?? "unspecified", inference_flagged: item.inference_flagged === true });
-    edges.push({ id: `edge:${decisionNodeId}:tracks:${id}`, from: decisionNodeId, to: id, type: "tracks" });
+    nodes.push({
+      id,
+      type: item.component,
+      label: item.label,
+      status: item.status,
+      impact: item.impact,
+      ...(item.source === undefined ? {} : { source: item.source }),
+      inference_flagged: item.inference_flagged === true,
+    });
+    edges.push({ id: graphEdgeId(decisionNodeId, "tracks", id), from: decisionNodeId, to: id, type: "tracks" });
     if (item.related_question_id) {
       const questionId = `question:${item.related_question_id}`;
       const edgeType = item.component === COMPONENTS.blocker ? "blocks" : item.component === COMPONENTS.contradiction ? "contradicts" : item.component === COMPONENTS.assumption ? "assumes" : "supports";
-      edges.push({ id: `edge:${id}:${edgeType}:${questionId}`, from: id, to: questionId, type: edgeType });
+      edges.push({ id: graphEdgeId(id, edgeType, questionId), from: id, to: questionId, type: edgeType });
     }
   }
   for (const event of ledger.events) {
     const eventId = `event:${event.event_id}`;
     nodes.push({ id: eventId, type: "event", label: event.type, occurred_at: event.occurred_at });
-    for (const entityId of event.entity_ids ?? []) {
+    const completedResponses = event.type === "pack_completed"
+      ? normalizeCompletedResponses(
+          event.payload.responses,
+          ledger.questions,
+          "event " + event.event_id + " responses",
+          true,
+        )
+      : [];
+    for (const entityId of projectedEventEntityIds(event, ledger)) {
       const item = ledger.items.find((entry) => entry.id === entityId);
       if (!item) continue;
       const target = `item:${item.id}`;
-      const edgeType = event.type.includes("reopen") ? "reopens" : event.type.includes("resolve") ? "resolves" : event.type.includes("flag") ? "flags" : "affects";
-      edges.push({ id: `edge:${eventId}:${edgeType}:${target}`, from: eventId, to: target, type: edgeType });
+      const edgeType = event.type === "item_reopened"
+        ? "reopens"
+        : event.type === "item_resolved"
+          ? "resolves"
+          : event.type === "inference_flagged"
+            ? "flags"
+            : "affects";
+      edges.push({ id: graphEdgeId(eventId, edgeType, target), from: eventId, to: target, type: edgeType });
     }
     if (event.type === "pack_advanced") {
-      for (const questionId of event.payload?.question_ids ?? []) {
-        const target = `question:${String(questionId).replace(/^q:/, "")}`;
+      for (const canonicalQuestionId of introducedByEvent.get(event.event_id) ?? []) {
+        const target = `question:${canonicalQuestionId}`;
         if (nodes.some((node) => node.id === target)) {
-          edges.push({ id: `edge:${eventId}:introduces:${target}`, from: eventId, to: target, type: "introduces" });
+          edges.push({ id: graphEdgeId(eventId, "introduces", target), from: eventId, to: target, type: "introduces" });
         }
       }
     }
     if (event.type === "pack_completed" && Array.isArray(event.payload?.responses)) {
-      for (const response of event.payload.responses) {
-        if (!isPlainObject(response) || typeof response.question_id !== "string") continue;
+      for (const response of completedResponses) {
         const normalizedQuestionId = response.question_id.replace(/^q:/, "");
         const questionNodeId = `question:${normalizedQuestionId}`;
         if (!nodes.some((node) => node.id === questionNodeId)) continue;
-        const answerNodeId = `answer:${event.event_id}:${normalizedQuestionId}`;
-        const resolution = typeof response.resolution === "string" ? response.resolution : "answer";
-        nodes.push({ id: answerNodeId, type: "answer", label: resolution, question_id: normalizedQuestionId, resolution });
-        edges.push({ id: `edge:${eventId}:records:${answerNodeId}`, from: eventId, to: answerNodeId, type: "records" });
-        edges.push({ id: `edge:${answerNodeId}:answers:${questionNodeId}`, from: answerNodeId, to: questionNodeId, type: "answers" });
+        const answerNodeId = graphAnswerNodeId(event.event_id, normalizedQuestionId);
+        const rawResolution = typeof response.resolution === "string" ? response.resolution : "answer";
+        const resolution = rawResolution === "withdraw" ? "withdrawn" : rawResolution;
+        const resolutionDetail = resolution === "defer"
+          ? response.deferral
+          : resolution === "not_applicable"
+            ? response.not_applicable
+            : resolution === "withdrawn"
+              ? response.withdrawal
+              : undefined;
+        const reason = isPlainObject(resolutionDetail) && typeof resolutionDetail.reason === "string"
+          ? resolutionDetail.reason
+          : undefined;
+        const reentryClue = resolution === "defer" && isPlainObject(resolutionDetail) && typeof resolutionDetail.clue === "string"
+          ? resolutionDetail.clue
+          : undefined;
+        const relationType = resolution === "defer"
+          ? "defers"
+          : resolution === "not_applicable"
+            ? "marks_not_applicable"
+            : resolution === "withdrawn"
+              ? "withdraws"
+              : "answers";
+        nodes.push({
+          id: answerNodeId,
+          type: "answer",
+          label: resolution,
+          question_id: normalizedQuestionId,
+          resolution,
+          ...(reason ? { reason } : {}),
+          ...(reentryClue ? { reentry_clue: reentryClue } : {}),
+        });
+        edges.push({ id: graphEdgeId(eventId, "records", answerNodeId), from: eventId, to: answerNodeId, type: "records" });
+        edges.push({ id: graphEdgeId(answerNodeId, relationType, questionNodeId), from: answerNodeId, to: questionNodeId, type: relationType });
       }
     }
   }
   const scoreNodeId = `score:${ledger.revision}:${readiness.policy?.hash?.slice(0, 12) ?? "none"}`;
   nodes.push({ id: scoreNodeId, type: "score", label: readiness.label ?? "Decision Readiness", value: readiness.score, unresolved_burden: readiness.unresolved_burden, policy: readiness.policy });
-  edges.push({ id: `edge:${decisionNodeId}:scored_as:${scoreNodeId}`, from: decisionNodeId, to: scoreNodeId, type: "scored_as" });
-  for (const itemId of readiness.open_item_ids ?? []) {
-    const itemNodeId = `item:${itemId}`;
-    if (nodes.some((node) => node.id === itemNodeId)) edges.push({ id: `edge:${itemNodeId}:affects_score:${scoreNodeId}`, from: itemNodeId, to: scoreNodeId, type: "affects_score" });
+  edges.push({ id: graphEdgeId(decisionNodeId, "scored_as", scoreNodeId), from: decisionNodeId, to: scoreNodeId, type: "scored_as" });
+  for (const item of ledger.items) {
+    if (!Object.hasOwn(DEFAULT_SCORING_POLICY.readiness_weights, item.component)) continue;
+    const itemNodeId = "item:" + item.id;
+    edges.push({ id: graphEdgeId(itemNodeId, "affects_score", scoreNodeId), from: itemNodeId, to: scoreNodeId, type: "affects_score" });
   }
-  nodes.sort((left, right) => left.id.localeCompare(right.id));
-  edges.sort((left, right) => left.id.localeCompare(right.id));
+  if (new Set(nodes.map((node) => node.id)).size !== nodes.length) {
+    throw new Error("graph projection produced duplicate node IDs");
+  }
+  if (new Set(edges.map((edge) => edge.id)).size !== edges.length) {
+    throw new Error("graph projection produced duplicate edge IDs");
+  }
+  const compareIds = (left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  nodes.sort(compareIds);
+  edges.sort(compareIds);
   return {
     schema_version: "decision-graph-projection/v1",
     ledger_revision: ledger.revision,

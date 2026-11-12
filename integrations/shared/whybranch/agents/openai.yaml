@@ -1,0 +1,4 @@
+interface:
+  display_name: "Whybranch"
+  short_description: "Explore choices and keep the reasons in one local workspace"
+  default_prompt: "Use $whybranch to capture evidence and decisions in one local workspace, then stop before any unapproved implementation choice."

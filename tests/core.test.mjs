@@ -8,6 +8,7 @@ import {
   normalizeSeed,
   projectGraph,
 } from "../src/core/index.mjs";
+import { interviewPack } from "../src/packs/interview.mjs";
 
 const seed = {
   objective: "Validate a local decision workflow",
@@ -95,6 +96,68 @@ test("reopening a resolved contradiction reduces its stability and creates seman
   assert.ok(projectGraph(reopened, after).edges.some((edge) => edge.type === "reopens"));
 });
 
+test("graph projection preserves the different semantics of final non-answer states", () => {
+  const ledger = createLedgerFromSeed(seed);
+  const completed = appendEvent(ledger, {
+    type: "pack_completed",
+    payload: {
+      responses: [{
+        question_id: "q:privacy",
+        resolution: "defer",
+        deferral: {
+          reason: "A usability session has not happened yet",
+          clue: "Revisit after the first moderated session",
+        },
+      }],
+    },
+  });
+  const graph = projectGraph(completed, computeReadiness(completed));
+  const deferred = graph.nodes.find((node) => node.type === "answer" && node.resolution === "defer");
+  assert.equal(deferred?.reason, "A usability session has not happened yet");
+  assert.equal(deferred?.reentry_clue, "Revisit after the first moderated session");
+  assert.ok(graph.edges.some((edge) => edge.type === "defers" && edge.to === "question:privacy"));
+
+  const mergedMemo = appendEvent(ledger, {
+    type: "pack_completed",
+    payload: {
+      responses: [{
+        question_id: "q:privacy",
+        resolution: "defer",
+        deferral: { reason: "Need real usage evidence; revisit after the first moderated session." },
+      }],
+    },
+  });
+  const mergedGraph = projectGraph(mergedMemo, computeReadiness(mergedMemo));
+  const mergedDeferred = mergedGraph.nodes.find((node) => node.type === "answer" && node.resolution === "defer");
+  assert.equal(mergedDeferred?.reason, "Need real usage evidence; revisit after the first moderated session.");
+  assert.equal(mergedDeferred?.reentry_clue, undefined);
+  assert.ok(mergedGraph.edges.some((edge) => edge.type === "defers" && edge.to === "question:privacy"));
+
+  const notApplicable = appendEvent(ledger, {
+    type: "pack_completed",
+    payload: {
+      responses: [{
+        question_id: "q:privacy",
+        resolution: "not_applicable",
+        not_applicable: { reason: "This decision has no remote users" },
+      }],
+    },
+  });
+  assert.ok(projectGraph(notApplicable).edges.some((edge) => edge.type === "marks_not_applicable"));
+
+  const withdrawn = appendEvent(ledger, {
+    type: "pack_completed",
+    payload: {
+      responses: [{
+        question_id: "q:privacy",
+        resolution: "withdrawn",
+        withdrawal: { reason: "The premise duplicates another question" },
+      }],
+    },
+  });
+  assert.ok(projectGraph(withdrawn).edges.some((edge) => edge.type === "withdraws"));
+});
+
 test("a scope change records a new scope version rather than silently comparing the old baseline", () => {
   const ledger = createLedgerFromSeed(seed);
   const before = computeReadiness(ledger);
@@ -111,4 +174,16 @@ test("no explicit material items yields N/A instead of fabricated readiness", ()
   const snapshot = computeReadiness(ledger);
   assert.equal(snapshot.score, null);
   assert.equal(snapshot.dimensions.information_completeness.state, "not_evaluated");
+});
+
+test("the built-in interview pack uses the standard text-answer contract", () => {
+  const normalized = normalizeSeed(interviewPack.seed);
+  assert.equal(normalized.questions.length, 3);
+  assert.deepEqual(normalized.material_items, []);
+  assert.ok(normalized.questions.every((question) => !("voice_input" in question)));
+  const legacySeed = normalizeSeed({
+    objective: "Legacy seed compatibility",
+    questions: [{ id: "answer", prompt: "Explain", kind: "free_text", voice_input: { mode: "browser-local" } }],
+  });
+  assert.ok(!("voice_input" in legacySeed.questions[0]));
 });

@@ -1,14 +1,14 @@
 {
-  "name": "decision-graph-interview",
+  "name": "whybranch",
   "version": "0.1.0-alpha.0",
-  "description": "Local, evidence-bound decision interviews for agent workflows.",
+  "description": "A local decision workspace for you and your AI agent.",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "decision-graph": "./bin/decision-graph.mjs"
+    "whybranch": "./bin/whybranch.mjs"
   },
   "exports": {
     ".": "./src/core/index.mjs"
@@ -20,6 +20,7 @@
     "examples",
     "docs",
     "README.md",
+    "README.ko.md",
     "CHANGELOG.md",
     "RELEASING.md",
     "CONTRIBUTING.md",
@@ -32,14 +33,14 @@
     "lint": "node scripts/lint.mjs",
     "check": "node scripts/check-public-contract.mjs",
     "pack:dry-run": "npm pack --dry-run",
-    "start": "node bin/decision-graph.mjs start"
+    "start": "node bin/whybranch.mjs start"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/decision-graph-interview.git"
+    "url": "git+https://github.com/omizha/whybranch.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/decision-graph-interview/issues"
+    "url": "https://github.com/omizha/whybranch/issues"
   },
-  "homepage": "https://github.com/OWNER/decision-graph-interview#readme"
+  "homepage": "https://github.com/omizha/whybranch#readme"
 }

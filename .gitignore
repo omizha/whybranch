@@ -1,5 +1,6 @@
 node_modules/
 coverage/
+.whybranch/
 .decision-graph/
 *.tgz
 .DS_Store

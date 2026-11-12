@@ -6,6 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const roots = [
   "package.json",
   "README.md",
+  "README.ko.md",
   "CHANGELOG.md",
   "RELEASING.md",
   "CONTRIBUTING.md",

@@ -1,10 +1,10 @@
 ---
-name: decision-graph-interview
-description: Codex adapter for the shared Decision Graph Interview skill. Read the canonical source in the packaged integrations directory; this adapter intentionally adds no workflow rules.
+name: whybranch
+description: Codex adapter for the shared Whybranch skill. Read the canonical source in the packaged integrations directory; this adapter intentionally adds no workflow rules.
 ---
 
-<!-- decision-graph-interview-canonical-source: ../shared/decision-graph-interview/SKILL.md -->
+<!-- whybranch-canonical-source: ../shared/whybranch/SKILL.md -->
 
-# Decision Graph Interview — Codex adapter
+# Whybranch — Codex adapter
 
-This is a thin adapter. Read and follow the [canonical shared skill](../shared/decision-graph-interview/SKILL.md). Install the canonical source rather than this pointer; see [`manifest.json`](manifest.json).
+This is a thin adapter. Read and follow the [canonical shared skill](../shared/whybranch/SKILL.md). Install the complete canonical skill directory, including its supporting references, rather than this pointer; see [`manifest.json`](manifest.json).

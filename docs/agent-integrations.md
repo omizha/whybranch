@@ -3,42 +3,49 @@
 Codex and Claude Code share one canonical workflow source:
 
 ```text
-integrations/shared/decision-graph-interview/SKILL.md
+integrations/shared/whybranch/SKILL.md
 ```
 
 The adapter directories contain only target-specific installation metadata and a pointer to that source. They deliberately do not fork the workflow text. `npm run check` verifies that each adapter still resolves to the canonical skill and remains a thin wrapper.
 
+The canonical skill directory also contains supporting references. Install the
+whole directory so links from `SKILL.md` remain available; agents read each
+reference only when its entrypoint condition applies.
+
 The skill also needs the CLI that owns the local workspace. Before relying on an
-installed `decision-graph` command, either install a published package whose
+installed `whybranch` command, either install a published package whose
 ownership you have verified, or keep a checked-out source copy and use its
-`node /absolute/path/to/decision-graph-interview-open/bin/decision-graph.mjs`
+`node /absolute/path/to/whybranch/bin/whybranch.mjs`
 fallback. Do not assume `npx` can resolve this alpha package before publication.
+The former `bin/decision-graph.mjs` source entry point forwards to Whybranch
+for compatibility with existing absolute calls; use `whybranch` for new
+installations and instructions.
 
 ## Install the shared skill in Codex
 
-From a checked-out package, copy the canonical source into the normal Codex skill location:
+From a checked-out package, copy the canonical skill directory into the normal Codex skill location:
 
 ```sh
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills/decision-graph-interview"
-cp ./integrations/shared/decision-graph-interview/SKILL.md \
-  "${CODEX_HOME:-$HOME/.codex}/skills/decision-graph-interview/SKILL.md"
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills/whybranch"
+cp -R ./integrations/shared/whybranch/. \
+  "${CODEX_HOME:-$HOME/.codex}/skills/whybranch/"
 ```
 
-Restart or open a new Codex task if the client does not refresh installed skills automatically. Invoke it explicitly with `$decision-graph-interview` when a local decision workspace is wanted.
+Restart or open a new Codex task if the client does not refresh installed skills automatically. Invoke it explicitly with `$whybranch` when a local decision workspace is wanted.
 
 For a local source checkout before package publication, either expose the
 binary with a deliberate local `npm link`/installation step or keep the source
-fallback path in the installed skill. Copying `SKILL.md` alone does not install
+fallback path in the installed skill. Copying the skill directory does not install
 the CLI binary.
 
 ## Install the shared skill in Claude Code
 
-For a project-local installation, copy the same file into the project's Claude Code skills directory:
+For a project-local installation, copy the same directory into the project's Claude Code skills directory:
 
 ```sh
-mkdir -p .claude/skills/decision-graph-interview
-cp ./integrations/shared/decision-graph-interview/SKILL.md \
-  .claude/skills/decision-graph-interview/SKILL.md
+mkdir -p .claude/skills/whybranch
+cp -R ./integrations/shared/whybranch/. \
+  .claude/skills/whybranch/
 ```
 
 Use your Claude Code installation's documented global skill directory if a user-level rather than project-level installation is needed. The canonical source remains the same.
@@ -47,10 +54,15 @@ Use your Claude Code installation's documented global skill directory if a user-
 
 | Adapter | Metadata | Default destination |
 | --- | --- | --- |
-| Codex | `integrations/codex/manifest.json` | `${CODEX_HOME:-~/.codex}/skills/decision-graph-interview/SKILL.md` |
-| Claude Code | `integrations/claude-code/manifest.json` | `.claude/skills/decision-graph-interview/SKILL.md` |
+| Codex | `integrations/codex/manifest.json` | `${CODEX_HOME:-~/.codex}/skills/whybranch/SKILL.md` |
+| Claude Code | `integrations/claude-code/manifest.json` | `.claude/skills/whybranch/SKILL.md` |
 
 The `SKILL.md` files in those adapter directories are review-time pointers. Do not install a pointer by itself: materialize the shared source at the destination instead.
+
+`canonical_source` and `default_destination` identify the entrypoint file.
+`supporting_files` lists required companions relative to the canonical skill
+directory; copy them to the same relative paths beside the installed entrypoint.
+The directory-copy commands above include those files and the UI metadata.
 
 ## Agent handoff contract
 
